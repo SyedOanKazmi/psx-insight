@@ -9,3 +9,7 @@ dist/
 build/
 .DS_Store
 *.log
+
+# SQLite database (created + seeded at runtime)
+*.db
+backend/psx.db
