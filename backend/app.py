@@ -23,8 +23,15 @@ app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 db.init_db()
 
 # ─── Stock data & model cache ─────────────────────────────────────────────────
-DATA_PATH = os.path.join(os.path.dirname(__file__), '../data/PSX_KSE100.csv')
-model_cache = {}
+FEATURED = {s['symbol'] for s in STOCKS}
+DEFAULT_TICKER = 'OGDC'
+model_cache = {}  # keyed by ticker
+
+
+def resolve_ticker(value):
+    """Return a valid featured ticker, falling back to the default."""
+    value = (value or '').upper().strip()
+    return value if value in FEATURED else DEFAULT_TICKER
 
 
 def login_required(f):
@@ -48,12 +55,31 @@ def role_required(*roles):
 
 
 # ─── Load & process stock data ────────────────────────────────────────────────
-def load_stock_data():
-    df = pd.read_csv(DATA_PATH)
+def load_stock_data(ticker):
+    conn = get_db()
+    rows = conn.execute(
+        'SELECT date, open, high, low, close, volume FROM prices WHERE ticker=? ORDER BY date',
+        (ticker,),
+    ).fetchall()
+    conn.close()
+    df = pd.DataFrame([tuple(r) for r in rows],
+                      columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
     df['Date'] = pd.to_datetime(df['Date'])
-    df.sort_values('Date', inplace=True)
-    df.reset_index(drop=True, inplace=True)
     return df
+
+
+def latest_quote(ticker):
+    """Latest close and day-over-day % change for a ticker."""
+    conn = get_db()
+    rows = conn.execute(
+        'SELECT close FROM prices WHERE ticker=? ORDER BY date DESC LIMIT 2', (ticker,),
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return None, None
+    price = round(rows[0]['close'], 2)
+    change = round((rows[0]['close'] - rows[1]['close']) / rows[1]['close'] * 100, 2) if len(rows) > 1 else 0.0
+    return price, change
 
 
 def engineer_features(df):
@@ -89,20 +115,22 @@ def train_model(df):
     return model, features, mape, X_test, y_test, y_pred
 
 
-def get_model():
-    if 'model' not in model_cache:
-        df = load_stock_data()
+def get_model(ticker):
+    if ticker not in model_cache:
+        df = load_stock_data(ticker)
         df_feat = engineer_features(df)
         model, features, mape, X_test, y_test, y_pred = train_model(df_feat)
-        model_cache['model']    = model
-        model_cache['features'] = features
-        model_cache['mape']     = mape
-        model_cache['df']       = df
-        model_cache['df_feat']  = df_feat
-        model_cache['X_test']   = X_test
-        model_cache['y_test']   = y_test.values
-        model_cache['y_pred']   = y_pred
-    return model_cache
+        model_cache[ticker] = {
+            'model':    model,
+            'features': features,
+            'mape':     mape,
+            'df':       df,
+            'df_feat':  df_feat,
+            'X_test':   X_test,
+            'y_test':   y_test.values,
+            'y_pred':   y_pred,
+        }
+    return model_cache[ticker]
 
 
 def predict_future(model, df_feat, features, days=30):
@@ -235,9 +263,11 @@ def api_logout():
 @app.route('/api/stock/history')
 @login_required
 def stock_history():
-    df = load_stock_data()
+    ticker = resolve_ticker(request.args.get('ticker'))
+    df = load_stock_data(ticker)
     recent = df.tail(365)
     return jsonify({
+        "ticker":  ticker,
         "dates":   recent['Date'].dt.strftime('%Y-%m-%d').tolist(),
         "open":    recent['Open'].tolist(),
         "close":   recent['Close'].tolist(),
@@ -250,12 +280,14 @@ def stock_history():
 @app.route('/api/stock/summary')
 @login_required
 def stock_summary():
-    df = load_stock_data()
+    ticker = resolve_ticker(request.args.get('ticker'))
+    df = load_stock_data(ticker)
     latest = df.iloc[-1]
     prev   = df.iloc[-2]
     change = round(latest['Close'] - prev['Close'], 2)
     pct    = round((change / prev['Close']) * 100, 2)
     return jsonify({
+        "ticker":       ticker,
         "latest_close": round(latest['Close'], 2),
         "change":       change,
         "pct_change":   pct,
@@ -270,15 +302,17 @@ def stock_summary():
 @app.route('/api/predict', methods=['GET'])
 @login_required
 def api_predict():
+    ticker = resolve_ticker(request.args.get('ticker'))
     days = int(request.args.get('days', 30))
     days = min(max(days, 7), 90)
-    cache = get_model()
+    cache = get_model(ticker)
     future = predict_future(cache['model'], cache['df_feat'], cache['features'], days)
     accuracy = round((1 - cache['mape']) * 100, 2)
 
     # historical actuals vs predictions on test set
     test_dates = cache['df_feat'].iloc[-len(cache['y_test']):]['Date'].dt.strftime('%Y-%m-%d').tolist()
     return jsonify({
+        "ticker":         ticker,
         "accuracy":       accuracy,
         "future":         future,
         "test_dates":     test_dates[-60:],
@@ -288,19 +322,6 @@ def api_predict():
 
 
 # ─── Stock Filtering / Watchlist API (Module 7) ───────────────────────────────
-def _indicative_price(symbol):
-    """Deterministic indicative price for a reference stock.
-
-    We do not hold per-stock history, so this derives a stable illustrative
-    figure from the symbol. It is clearly labelled "indicative" in the UI and
-    is only used to make the watchlist visually meaningful.
-    """
-    seed = sum(ord(ch) for ch in symbol)
-    base = 40 + (seed % 900)
-    change = round(((seed % 41) - 20) / 10.0, 2)  # -2.0 .. +2.0 %
-    return round(base + (seed % 100) / 100.0, 2), change
-
-
 @app.route('/api/stocks')
 @login_required
 def api_stocks():
@@ -311,7 +332,7 @@ def api_stocks():
     tracked = {r['symbol'] for r in rows}
     out = []
     for s in STOCKS:
-        price, change = _indicative_price(s['symbol'])
+        price, change = latest_quote(s['symbol'])
         out.append({**s, "price": price, "change": change, "tracked": s['symbol'] in tracked})
     return jsonify({"stocks": out, "sectors": SECTORS})
 
@@ -326,7 +347,7 @@ def get_watchlist():
     out = []
     for s in STOCKS:
         if s['symbol'] in tracked:
-            price, change = _indicative_price(s['symbol'])
+            price, change = latest_quote(s['symbol'])
             out.append({**s, "price": price, "change": change})
     return jsonify(out)
 
@@ -548,7 +569,7 @@ def admin_delete_user(email):
 
 
 if __name__ == '__main__':
-    print("Training model on startup...")
-    get_model()
+    print(f"Training default model ({DEFAULT_TICKER}) on startup...")
+    get_model(DEFAULT_TICKER)
     print("Model ready. Starting server...")
     app.run(debug=True, port=5000)

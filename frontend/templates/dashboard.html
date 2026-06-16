@@ -1,12 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — PSX Insight{% endblock %}
+{% block title %}Dashboard — Invock Investments{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
     <h1 class="page-title">Market Dashboard</h1>
-    <p class="page-sub">KSE-100 Index — Real-time analysis</p>
+    <p class="page-sub" id="ticker-sub">Loading...</p>
   </div>
-  <div class="header-date" id="curr-date"></div>
+  <div class="header-right">
+    <select id="ticker-select" class="form-select" onchange="changeTicker()"></select>
+    <div class="header-date" id="curr-date"></div>
+  </div>
 </div>
 
 <!-- Summary Cards -->
@@ -59,15 +62,29 @@
 <script>
 let allData = null;
 let priceChart, volumeChart, maChart;
+let currentTicker = 'OGDC';
 
 document.getElementById('curr-date').textContent = new Date().toLocaleDateString('en-PK', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
 
+async function loadTickers() {
+  const data = await fetch('/api/stocks').then(r=>r.json());
+  const sel = document.getElementById('ticker-select');
+  sel.innerHTML = data.stocks.map(s => `<option value="${s.symbol}">${s.symbol} — ${s.name}</option>`).join('');
+  currentTicker = data.stocks[0].symbol;
+}
+
+function changeTicker() {
+  currentTicker = document.getElementById('ticker-select').value;
+  loadDashboard();
+}
+
 async function loadDashboard() {
   const [summary, history] = await Promise.all([
-    fetch('/api/stock/summary').then(r=>r.json()),
-    fetch('/api/stock/history').then(r=>r.json())
+    fetch(`/api/stock/summary?ticker=${currentTicker}`).then(r=>r.json()),
+    fetch(`/api/stock/history?ticker=${currentTicker}`).then(r=>r.json())
   ]);
   allData = history;
+  document.getElementById('ticker-sub').textContent = `${summary.ticker} — last updated ${summary.last_date}`;
 
   // Summary cards
   document.getElementById('latest-close').textContent = 'PKR ' + summary.latest_close.toLocaleString();
@@ -153,6 +170,6 @@ function setRange(n, btn) {
   if (allData) renderCharts(allData, n);
 }
 
-loadDashboard();
+(async () => { await loadTickers(); loadDashboard(); })();
 </script>
 {% endblock %}

@@ -12,6 +12,7 @@ import hashlib
 from datetime import datetime
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'psx.db')
+PRICES_CSV = os.path.join(os.path.dirname(__file__), '../data/psx_stocks.csv')
 
 
 def hash_pw(pw):
@@ -99,6 +100,16 @@ def init_db():
         symbol     TEXT NOT NULL,
         PRIMARY KEY (user_email, symbol)
     );
+    CREATE TABLE IF NOT EXISTS prices (
+        ticker TEXT NOT NULL,
+        date   TEXT NOT NULL,
+        open   REAL,
+        high   REAL,
+        low    REAL,
+        close  REAL,
+        volume REAL,
+        PRIMARY KEY (ticker, date)
+    );
     ''')
     conn.commit()
 
@@ -139,6 +150,41 @@ def init_db():
              "announcement", now),
         )
 
+    conn.commit()
+    conn.close()
+
+    import_prices()
+
+
+# ─── Price history import ─────────────────────────────────────────────────────
+def import_prices():
+    """Load real per-stock OHLCV history from the CSV into the prices table.
+
+    Runs once on a fresh database (skips if prices already exist). Reads in
+    chunks so the import stays light on memory.
+    """
+    conn = get_db()
+    c = conn.cursor()
+    if c.execute('SELECT 1 FROM prices LIMIT 1').fetchone():
+        conn.close()
+        return
+    if not os.path.exists(PRICES_CSV):
+        conn.close()
+        return
+
+    import csv
+    with open(PRICES_CSV, newline='') as fh:
+        reader = csv.DictReader(fh)
+        batch = []
+        for row in reader:
+            batch.append((row['Ticker'], row['Date'][:10],
+                          float(row['Open']), float(row['High']), float(row['Low']),
+                          float(row['Close']), float(row['Volume'])))
+            if len(batch) >= 5000:
+                c.executemany('INSERT OR IGNORE INTO prices VALUES (?,?,?,?,?,?,?)', batch)
+                batch = []
+        if batch:
+            c.executemany('INSERT OR IGNORE INTO prices VALUES (?,?,?,?,?,?,?)', batch)
     conn.commit()
     conn.close()
 

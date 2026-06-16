@@ -13,3 +13,11 @@ build/
 # SQLite database (created + seeded at runtime)
 *.db
 backend/psx.db
+api/psx.db
+
+# Node / Vue frontend build artifacts
+node_modules/
+web/node_modules/
+web/dist/
+web/.vite/
+.vite/

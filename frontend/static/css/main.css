@@ -189,6 +189,8 @@ body {
 
 /* ── Utilities added for new modules ──────────────────────────────── */
 .full-width { width:100%; }
+.header-right { display:flex; align-items:center; gap:1rem; }
+.header-right .form-select { width:auto; min-width:200px; }
 .alert-success { background:rgba(0,200,150,.1); border:1px solid rgba(0,200,150,.3); color:var(--accent); }
 
 /* ── Notifications ────────────────────────────────────────────────── */

@@ -1,12 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Predictions — PSX Insight{% endblock %}
+{% block title %}Predictions — Invock Investments{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
     <h1 class="page-title">Stock Predictions</h1>
-    <p class="page-sub">Gradient Boosting model trained on KSE-100 historical data</p>
+    <p class="page-sub">Gradient Boosting model trained on real PSX stock history</p>
   </div>
   <div class="predict-controls">
+    <label class="form-label" style="margin:0">Stock:</label>
+    <select id="ticker-select" class="form-select" onchange="loadPrediction()"></select>
     <label class="form-label" style="margin:0">Forecast horizon:</label>
     <select id="days-select" class="form-select" onchange="loadPrediction()">
       <option value="7">7 days</option>
@@ -70,10 +72,17 @@
 <script>
 let validChart, forecastChart;
 
+async function loadTickers() {
+  const data = await fetch('/api/stocks').then(r=>r.json());
+  const sel = document.getElementById('ticker-select');
+  sel.innerHTML = data.stocks.map(s => `<option value="${s.symbol}">${s.symbol} — ${s.name}</option>`).join('');
+}
+
 async function loadPrediction() {
-  const days = document.getElementById('days-select').value;
+  const days   = document.getElementById('days-select').value;
+  const ticker = document.getElementById('ticker-select').value || 'OGDC';
   document.getElementById('accuracy').textContent = 'Loading...';
-  const data = await fetch(`/api/predict?days=${days}`).then(r=>r.json());
+  const data = await fetch(`/api/predict?ticker=${ticker}&days=${days}`).then(r=>r.json());
 
   document.getElementById('accuracy').textContent = data.accuracy + '%';
   const prices = data.future.map(f=>f.price);
@@ -129,6 +138,6 @@ async function loadPrediction() {
   }).join('');
 }
 
-loadPrediction();
+(async () => { await loadTickers(); loadPrediction(); })();
 </script>
 {% endblock %}

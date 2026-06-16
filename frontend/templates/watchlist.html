@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Watchlist — PSX Insight{% endblock %}
+{% block title %}Watchlist — Invock Investments{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
@@ -55,8 +55,10 @@ function render(stocks) {
   const grid = document.getElementById('stocks-grid');
   if (!stocks.length) { grid.innerHTML = '<div class="empty-state">No stocks match your filters.</div>'; return; }
   grid.innerHTML = stocks.map(s => {
-    const cls  = s.change >= 0 ? 'green' : 'red';
-    const sign = s.change >= 0 ? '+' : '';
+    const change = s.change ?? 0;
+    const cls  = change >= 0 ? 'green' : 'red';
+    const sign = change >= 0 ? '+' : '';
+    const price = s.price != null ? 'PKR ' + s.price.toLocaleString() : '—';
     return `
     <div class="stock-card">
       <div class="stock-top">
@@ -71,8 +73,8 @@ function render(stocks) {
       <div class="stock-bottom">
         <span class="sector-tag">${s.sector}</span>
         <div class="stock-price">
-          <span class="price-indicative" title="Indicative figure">~PKR ${s.price.toLocaleString()}</span>
-          <span class="stock-change ${cls}">${sign}${s.change}%</span>
+          <span class="price-indicative">${price}</span>
+          <span class="stock-change ${cls}">${sign}${change}%</span>
         </div>
       </div>
     </div>`;
