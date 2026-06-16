@@ -1,7 +1,8 @@
 import axios from 'axios'
 
 // All requests go to the FastAPI backend.
-const api = axios.create({ baseURL: 'http://127.0.0.1:8001' })
+// In production, set VITE_API_URL (e.g. your Render URL); locally it defaults to 8001.
+const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001' })
 
 // Attach the JWT (if we have one) to every request.
 api.interceptors.request.use((config) => {

@@ -7,6 +7,7 @@ a Random Forest per stock for predictions. Scoped to 3 stocks for now.
 Run:  uvicorn main:app --reload --port 8000
 Docs: http://127.0.0.1:8000/docs
 """
+import os
 from datetime import datetime
 
 from fastapi import FastAPI, Depends, HTTPException
@@ -23,10 +24,14 @@ VALID_ROLES = ("investor", "expert", "admin")
 
 app = FastAPI(title="Invock Investments API")
 
-# Allow the Vue dev server (Vite) to call this API during development.
+# Allow the Vue dev server locally, plus any deployed frontend origins listed
+# in the CORS_ORIGINS env var. The regex also permits Vercel preview/prod URLs.
+_default_origins = "http://localhost:5173,http://127.0.0.1:5173"
+_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", _default_origins).split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
