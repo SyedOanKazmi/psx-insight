@@ -51,7 +51,10 @@
     <div class="fb-item" v-for="f in feedback" :key="f.id">
       <div class="fb-top">
         <span><span class="fb-cat">{{ f.category }}</span> <span class="qa-date">{{ f.name }}</span></span>
-        <span class="status" :class="f.status">{{ f.status }}</span>
+        <span style="display:flex; align-items:center; gap:.5rem">
+          <span class="status" :class="f.status">{{ f.status }}</span>
+          <button class="del" @click="removeFeedback(f.id)">Delete</button>
+        </span>
       </div>
       <p>{{ f.message }}</p>
       <span class="qa-date">{{ f.created_at }}</span>
@@ -103,6 +106,11 @@ async function sendAnnouncement() {
 async function respond(id) {
   await api.post(`/api/feedback/${id}/respond`, { response: responses[id].trim() })
   responses[id] = ''
+  load()
+}
+async function removeFeedback(id) {
+  if (!confirm('Delete this feedback?')) return
+  await api.delete(`/api/feedback/${id}`)
   load()
 }
 onMounted(load)

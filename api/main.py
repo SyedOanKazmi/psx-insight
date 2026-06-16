@@ -259,6 +259,15 @@ def respond_feedback(fid: int, req: FeedbackResponse, user: dict = Depends(requi
     return {"message": "responded"}
 
 
+@app.delete("/api/feedback/{fid}")
+def delete_feedback(fid: int, user: dict = Depends(require_roles("admin"))):
+    conn = db.get_db()
+    conn.execute("DELETE FROM feedback WHERE id=?", (fid,))
+    conn.commit()
+    conn.close()
+    return {"message": "deleted"}
+
+
 # ─── Admin ────────────────────────────────────────────────────────────────────
 @app.get("/api/admin/users")
 def admin_users(user: dict = Depends(require_roles("admin"))):

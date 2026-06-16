@@ -2,7 +2,7 @@
   <div class="page-head">
     <div>
       <h1 class="page-title">Stocks &amp; Watchlist</h1>
-      <p class="page-sub">Filter stocks and build your personal watchlist</p>
+      <p class="page-sub">Click a stock to view its forecast · star it to track it</p>
     </div>
   </div>
 
@@ -21,13 +21,19 @@
   <div v-if="!filtered.length" class="page-sub">No stocks match your filters.</div>
 
   <div class="stocks">
-    <div class="stock" v-for="s in filtered" :key="s.symbol">
+    <div
+      class="stock"
+      v-for="s in filtered"
+      :key="s.symbol"
+      @click="openForecast(s)"
+      style="cursor:pointer"
+    >
       <div class="top">
         <div>
           <div class="sym">{{ s.symbol }}</div>
           <div class="nm">{{ s.name }}</div>
         </div>
-        <button class="star" :class="{ on: s.tracked }" @click="toggle(s)">{{ s.tracked ? '★' : '☆' }}</button>
+        <button class="star" :class="{ on: s.tracked }" @click.stop="toggle(s)">{{ s.tracked ? '★' : '☆' }}</button>
       </div>
       <div style="margin-top:1rem; display:flex; justify-content:space-between; align-items:center;">
         <span class="nm">{{ s.sector }}</span>
@@ -44,17 +50,17 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '../api'
 
+const router = useRouter()
 const stocks = ref([])
 const search = ref('')
 const sector = ref('')
 const watchOnly = ref(false)
 
-// Build the sector dropdown from whatever stocks are loaded.
 const sectors = computed(() => [...new Set(stocks.value.map((s) => s.sector))].sort())
 
-// Apply search + sector + watchlist-only filters.
 const filtered = computed(() =>
   stocks.value.filter((s) => {
     const q = search.value.toLowerCase()
@@ -68,6 +74,11 @@ const filtered = computed(() =>
 async function loadStocks() {
   const { data } = await api.get('/api/stocks')
   stocks.value = data.stocks
+}
+
+// Go to the Predictions page for the clicked stock.
+function openForecast(s) {
+  router.push({ path: '/predictions', query: { ticker: s.symbol } })
 }
 
 async function toggle(s) {

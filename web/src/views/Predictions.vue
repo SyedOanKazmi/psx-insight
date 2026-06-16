@@ -30,8 +30,11 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import Chart from 'chart.js/auto'
 import api from '../api'
+
+const route = useRoute()
 
 const FORECAST_DAYS = 7
 const stocks = ref([])
@@ -87,7 +90,10 @@ async function load() {
 onMounted(async () => {
   const { data } = await api.get('/api/stocks')
   stocks.value = data.stocks
-  ticker.value = data.stocks[0].symbol
+  // If we arrived from the watchlist (?ticker=XYZ), open that stock; else the first.
+  const wanted = (route.query.ticker || '').toString().toUpperCase()
+  const match = data.stocks.find((s) => s.symbol === wanted)
+  ticker.value = match ? match.symbol : data.stocks[0].symbol
   load()
 })
 </script>

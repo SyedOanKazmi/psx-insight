@@ -127,7 +127,9 @@ textarea:focus { border-color: var(--accent); }
 
 /* Watchlist */
 .stocks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-.stock { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
+.stock { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; transition: .15s; }
+.stock:hover { border-color: var(--accent2); transform: translateY(-2px); }
+.stock.active { border-color: var(--accent); }
 .stock .top { display: flex; justify-content: space-between; align-items: start; }
 .stock .sym { font-size: 1.2rem; font-weight: 700; }
 .stock .nm { color: var(--muted); font-size: .8rem; }
