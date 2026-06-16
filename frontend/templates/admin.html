@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Admin — PSX Insight{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Admin Panel</h1>
+    <p class="page-sub">Manage users, experts, and system settings</p>
+  </div>
+</div>
+
+<div class="admin-grid">
+  <div class="admin-card">
+    <h3 class="admin-card-title">System Overview</h3>
+    <div class="admin-stats">
+      <div class="admin-stat-row"><span>Total Users</span><span id="total-users">—</span></div>
+      <div class="admin-stat-row"><span>Investors</span><span id="total-investors">—</span></div>
+      <div class="admin-stat-row"><span>Experts</span><span id="total-experts">—</span></div>
+      <div class="admin-stat-row"><span>Admins</span><span id="total-admins">—</span></div>
+    </div>
+  </div>
+
+  <div class="admin-card wide">
+    <h3 class="admin-card-title">User Management</h3>
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Action</th></tr></thead>
+      <tbody id="users-tbody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadUsers() {
+  const users = await fetch('/api/admin/users').then(r=>r.json());
+  document.getElementById('total-users').textContent     = users.length;
+  document.getElementById('total-investors').textContent = users.filter(u=>u.role==='investor').length;
+  document.getElementById('total-experts').textContent   = users.filter(u=>u.role==='expert').length;
+  document.getElementById('total-admins').textContent    = users.filter(u=>u.role==='admin').length;
+
+  document.getElementById('users-tbody').innerHTML = users.map(u=>`
+    <tr>
+      <td>${u.name}</td>
+      <td>${u.email}</td>
+      <td><span class="qa-role-badge ${u.role}">${u.role}</span></td>
+      <td><button class="btn-delete" onclick="deleteUser('${u.email}')">Delete</button></td>
+    </tr>
+  `).join('');
+}
+
+async function deleteUser(email) {
+  if (!confirm(`Delete ${email}?`)) return;
+  await fetch(`/api/admin/users/${encodeURIComponent(email)}`, {method:'DELETE'});
+  loadUsers();
+}
+
+loadUsers();
+</script>
+{% endblock %}

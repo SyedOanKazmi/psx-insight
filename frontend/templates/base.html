@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}PSX Insight{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+<body>
+{% if session.get('user') %}
+<nav class="navbar">
+  <div class="nav-brand">
+    <span class="brand-icon">📈</span>
+    <span class="brand-name">PSX<span class="brand-accent">Insight</span></span>
+  </div>
+  <div class="nav-links">
+    <a href="/dashboard" class="nav-link {% if request.path == '/dashboard' %}active{% endif %}">Dashboard</a>
+    <a href="/predict-page" class="nav-link {% if request.path == '/predict-page' %}active{% endif %}">Predictions</a>
+    <a href="/qa" class="nav-link {% if request.path == '/qa' %}active{% endif %}">Expert Q&amp;A</a>
+    {% if session.get('role') == 'admin' %}
+    <a href="/admin" class="nav-link {% if request.path == '/admin' %}active{% endif %}">Admin</a>
+    {% endif %}
+  </div>
+  <div class="nav-user">
+    <span class="user-badge {{ session.get('role') }}">{{ session.get('role') }}</span>
+    <span class="user-name">{{ session.get('name') }}</span>
+    <button onclick="logout()" class="btn-logout">Logout</button>
+  </div>
+</nav>
+{% endif %}
+
+<main class="main-content">
+  {% block content %}{% endblock %}
+</main>
+
+<script>
+async function logout() {
+  await fetch('/api/logout', {method:'POST'});
+  window.location.href = '/login';
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

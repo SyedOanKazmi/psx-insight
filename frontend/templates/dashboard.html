@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — PSX Insight{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Market Dashboard</h1>
+    <p class="page-sub">KSE-100 Index — Real-time analysis</p>
+  </div>
+  <div class="header-date" id="curr-date"></div>
+</div>
+
+<!-- Summary Cards -->
+<div class="stats-grid">
+  <div class="stat-card primary">
+    <div class="stat-label">Latest Close</div>
+    <div class="stat-value" id="latest-close">—</div>
+    <div class="stat-change" id="stat-change">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">52-Week High</div>
+    <div class="stat-value green" id="high-52">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">52-Week Low</div>
+    <div class="stat-value red" id="low-52">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Avg. Volume (30d)</div>
+    <div class="stat-value" id="avg-vol">—</div>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="charts-grid">
+  <div class="chart-card wide">
+    <div class="chart-header">
+      <h3 class="chart-title">Price History (1 Year)</h3>
+      <div class="chart-controls">
+        <button class="chart-btn active" onclick="setRange(365, this)">1Y</button>
+        <button class="chart-btn" onclick="setRange(180, this)">6M</button>
+        <button class="chart-btn" onclick="setRange(90, this)">3M</button>
+        <button class="chart-btn" onclick="setRange(30, this)">1M</button>
+      </div>
+    </div>
+    <canvas id="priceChart" height="100"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-header"><h3 class="chart-title">Trading Volume</h3></div>
+    <canvas id="volumeChart" height="140"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-header"><h3 class="chart-title">Moving Averages</h3></div>
+    <canvas id="maChart" height="140"></canvas>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allData = null;
+let priceChart, volumeChart, maChart;
+
+document.getElementById('curr-date').textContent = new Date().toLocaleDateString('en-PK', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+
+async function loadDashboard() {
+  const [summary, history] = await Promise.all([
+    fetch('/api/stock/summary').then(r=>r.json()),
+    fetch('/api/stock/history').then(r=>r.json())
+  ]);
+  allData = history;
+
+  // Summary cards
+  document.getElementById('latest-close').textContent = 'PKR ' + summary.latest_close.toLocaleString();
+  document.getElementById('high-52').textContent = 'PKR ' + summary.high_52w.toLocaleString();
+  document.getElementById('low-52').textContent = 'PKR ' + summary.low_52w.toLocaleString();
+  document.getElementById('avg-vol').textContent = (summary.avg_volume/1e6).toFixed(2) + 'M';
+  const changeEl = document.getElementById('stat-change');
+  const sign = summary.change >= 0 ? '+' : '';
+  changeEl.textContent = `${sign}${summary.change} (${sign}${summary.pct_change}%)`;
+  changeEl.className = 'stat-change ' + (summary.change >= 0 ? 'green' : 'red');
+
+  renderCharts(history, 365);
+}
+
+function computeMA(data, period) {
+  return data.map((_, i) => i < period - 1 ? null : data.slice(i - period + 1, i + 1).reduce((a,b)=>a+b,0)/period);
+}
+
+function renderCharts(data, range) {
+  const n = Math.min(range, data.dates.length);
+  const dates  = data.dates.slice(-n);
+  const closes = data.close.slice(-n);
+  const vols   = data.volume.slice(-n);
+
+  // Price chart
+  if (priceChart) priceChart.destroy();
+  priceChart = new Chart(document.getElementById('priceChart'), {
+    type:'line',
+    data: {
+      labels: dates,
+      datasets: [{
+        label:'Close Price',
+        data: closes,
+        borderColor:'#00C896',
+        backgroundColor:'rgba(0,200,150,0.08)',
+        borderWidth:2, pointRadius:0, fill:true, tension:0.3
+      }]
+    },
+    options: { responsive:true, plugins:{legend:{display:false}}, scales:{
+      x:{ticks:{maxTicksLimit:8, color:'#94a3b8'}, grid:{color:'rgba(255,255,255,0.05)'}},
+      y:{ticks:{color:'#94a3b8'}, grid:{color:'rgba(255,255,255,0.05)'}}
+    }}
+  });
+
+  // Volume chart
+  if (volumeChart) volumeChart.destroy();
+  volumeChart = new Chart(document.getElementById('volumeChart'), {
+    type:'bar',
+    data: {
+      labels: dates,
+      datasets:[{label:'Volume', data:vols, backgroundColor:'rgba(99,102,241,0.6)', borderRadius:2}]
+    },
+    options:{responsive:true, plugins:{legend:{display:false}}, scales:{
+      x:{ticks:{maxTicksLimit:6, color:'#94a3b8'}, grid:{display:false}},
+      y:{ticks:{color:'#94a3b8', callback:v=>(v/1e6).toFixed(1)+'M'}, grid:{color:'rgba(255,255,255,0.05)'}}
+    }}
+  });
+
+  // MA chart
+  const ma7  = computeMA(closes, 7);
+  const ma21 = computeMA(closes, 21);
+  if (maChart) maChart.destroy();
+  maChart = new Chart(document.getElementById('maChart'), {
+    type:'line',
+    data:{
+      labels:dates,
+      datasets:[
+        {label:'Close', data:closes, borderColor:'#94a3b8', borderWidth:1, pointRadius:0, tension:0.3},
+        {label:'MA7',   data:ma7,    borderColor:'#f59e0b', borderWidth:2, pointRadius:0, tension:0.3},
+        {label:'MA21',  data:ma21,   borderColor:'#6366f1', borderWidth:2, pointRadius:0, tension:0.3},
+      ]
+    },
+    options:{responsive:true, plugins:{legend:{labels:{color:'#94a3b8'}}}, scales:{
+      x:{ticks:{maxTicksLimit:6, color:'#94a3b8'}, grid:{color:'rgba(255,255,255,0.05)'}},
+      y:{ticks:{color:'#94a3b8'}, grid:{color:'rgba(255,255,255,0.05)'}}
+    }}
+  });
+}
+
+function setRange(n, btn) {
+  document.querySelectorAll('.chart-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  if (allData) renderCharts(allData, n);
+}
+
+loadDashboard();
+</script>
+{% endblock %}

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Predictions — PSX Insight{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Stock Predictions</h1>
+    <p class="page-sub">Gradient Boosting model trained on KSE-100 historical data</p>
+  </div>
+  <div class="predict-controls">
+    <label class="form-label" style="margin:0">Forecast horizon:</label>
+    <select id="days-select" class="form-select" onchange="loadPrediction()">
+      <option value="7">7 days</option>
+      <option value="14">14 days</option>
+      <option value="30" selected>30 days</option>
+      <option value="60">60 days</option>
+      <option value="90">90 days</option>
+    </select>
+  </div>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card primary">
+    <div class="stat-label">Model Accuracy</div>
+    <div class="stat-value green" id="accuracy">Loading...</div>
+    <div class="stat-change">based on test set</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Predicted in 30d</div>
+    <div class="stat-value" id="pred-30d">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Predicted High</div>
+    <div class="stat-value green" id="pred-high">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Predicted Low</div>
+    <div class="stat-value red" id="pred-low">—</div>
+  </div>
+</div>
+
+<div class="charts-grid">
+  <div class="chart-card wide">
+    <div class="chart-header">
+      <h3 class="chart-title">Actual vs Predicted (Test Set)</h3>
+      <span class="chart-badge">Model Validation</span>
+    </div>
+    <canvas id="validChart" height="100"></canvas>
+  </div>
+  <div class="chart-card wide">
+    <div class="chart-header">
+      <h3 class="chart-title">Future Price Forecast</h3>
+      <span class="chart-badge green-badge">AI Prediction</span>
+    </div>
+    <canvas id="forecastChart" height="100"></canvas>
+  </div>
+</div>
+
+<div class="prediction-table-card">
+  <h3 class="chart-title" style="margin-bottom:1rem">Forecast Table</h3>
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th>#</th><th>Date</th><th>Predicted Price (PKR)</th><th>Change</th></tr></thead>
+      <tbody id="forecast-tbody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let validChart, forecastChart;
+
+async function loadPrediction() {
+  const days = document.getElementById('days-select').value;
+  document.getElementById('accuracy').textContent = 'Loading...';
+  const data = await fetch(`/api/predict?days=${days}`).then(r=>r.json());
+
+  document.getElementById('accuracy').textContent = data.accuracy + '%';
+  const prices = data.future.map(f=>f.price);
+  document.getElementById('pred-30d').textContent = 'PKR ' + prices[Math.min(29,prices.length-1)].toLocaleString();
+  document.getElementById('pred-high').textContent = 'PKR ' + Math.max(...prices).toLocaleString();
+  document.getElementById('pred-low').textContent  = 'PKR ' + Math.min(...prices).toLocaleString();
+
+  // Validation chart
+  if (validChart) validChart.destroy();
+  validChart = new Chart(document.getElementById('validChart'), {
+    type:'line',
+    data:{
+      labels: data.test_dates,
+      datasets:[
+        {label:'Actual',    data:data.test_actual,    borderColor:'#00C896', borderWidth:2, pointRadius:0, tension:0.3},
+        {label:'Predicted', data:data.test_predicted, borderColor:'#f59e0b', borderWidth:2, pointRadius:0, tension:0.3, borderDash:[5,3]},
+      ]
+    },
+    options:{responsive:true, plugins:{legend:{labels:{color:'#94a3b8'}}}, scales:{
+      x:{ticks:{maxTicksLimit:8, color:'#94a3b8'}, grid:{color:'rgba(255,255,255,0.05)'}},
+      y:{ticks:{color:'#94a3b8'}, grid:{color:'rgba(255,255,255,0.05)'}}
+    }}
+  });
+
+  // Forecast chart
+  if (forecastChart) forecastChart.destroy();
+  forecastChart = new Chart(document.getElementById('forecastChart'), {
+    type:'line',
+    data:{
+      labels: data.future.map(f=>f.date),
+      datasets:[{
+        label:'Forecast', data:prices,
+        borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.1)',
+        borderWidth:2.5, pointRadius:3, fill:true, tension:0.4
+      }]
+    },
+    options:{responsive:true, plugins:{legend:{display:false}}, scales:{
+      x:{ticks:{maxTicksLimit:8, color:'#94a3b8'}, grid:{color:'rgba(255,255,255,0.05)'}},
+      y:{ticks:{color:'#94a3b8'}, grid:{color:'rgba(255,255,255,0.05)'}}
+    }}
+  });
+
+  // Table
+  const tbody = document.getElementById('forecast-tbody');
+  const base = prices[0];
+  tbody.innerHTML = data.future.map((f,i)=>{
+    const prev  = i===0 ? base : prices[i-1];
+    const chg   = (f.price - prev).toFixed(2);
+    const pct   = ((f.price-prev)/prev*100).toFixed(2);
+    const cls   = chg>=0 ? 'green' : 'red';
+    const sign  = chg>=0 ? '+' : '';
+    return `<tr><td>${i+1}</td><td>${f.date}</td><td>PKR ${f.price.toLocaleString()}</td><td class="${cls}">${sign}${chg} (${sign}${pct}%)</td></tr>`;
+  }).join('');
+}
+
+loadPrediction();
+</script>
+{% endblock %}
