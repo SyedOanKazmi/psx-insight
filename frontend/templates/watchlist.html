@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Watchlist — PSX Insight{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Stocks &amp; Watchlist</h1>
+    <p class="page-sub">Filter KSE-100 constituents and build your personal watchlist</p>
+  </div>
+</div>
+
+<!-- Filter controls -->
+<div class="filter-bar">
+  <input type="text" id="search-input" class="form-input" placeholder="Search symbol or company..." oninput="applyFilters()"/>
+  <select id="sector-select" class="form-select" onchange="applyFilters()">
+    <option value="">All Sectors</option>
+  </select>
+  <label class="filter-toggle">
+    <input type="checkbox" id="watch-only" onchange="applyFilters()"/> Watchlist only
+  </label>
+</div>
+
+<div id="stocks-grid" class="stocks-grid">
+  <div class="loading-state">Loading stocks...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allStocks = [];
+
+async function loadStocks() {
+  const data = await fetch('/api/stocks').then(r=>r.json());
+  allStocks = data.stocks;
+  const sel = document.getElementById('sector-select');
+  data.sectors.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s; sel.appendChild(opt);
+  });
+  render(allStocks);
+}
+
+function applyFilters() {
+  const q      = document.getElementById('search-input').value.toLowerCase();
+  const sector = document.getElementById('sector-select').value;
+  const watch  = document.getElementById('watch-only').checked;
+  const filtered = allStocks.filter(s =>
+    (!q || s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)) &&
+    (!sector || s.sector === sector) &&
+    (!watch || s.tracked)
+  );
+  render(filtered);
+}
+
+function render(stocks) {
+  const grid = document.getElementById('stocks-grid');
+  if (!stocks.length) { grid.innerHTML = '<div class="empty-state">No stocks match your filters.</div>'; return; }
+  grid.innerHTML = stocks.map(s => {
+    const cls  = s.change >= 0 ? 'green' : 'red';
+    const sign = s.change >= 0 ? '+' : '';
+    return `
+    <div class="stock-card">
+      <div class="stock-top">
+        <div>
+          <div class="stock-symbol">${s.symbol}</div>
+          <div class="stock-name">${s.name}</div>
+        </div>
+        <button class="star-btn ${s.tracked ? 'on' : ''}" onclick="toggleWatch('${s.symbol}', this)" title="Toggle watchlist">
+          ${s.tracked ? '★' : '☆'}
+        </button>
+      </div>
+      <div class="stock-bottom">
+        <span class="sector-tag">${s.sector}</span>
+        <div class="stock-price">
+          <span class="price-indicative" title="Indicative figure">~PKR ${s.price.toLocaleString()}</span>
+          <span class="stock-change ${cls}">${sign}${s.change}%</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function toggleWatch(symbol, btn) {
+  const stock = allStocks.find(s => s.symbol === symbol);
+  const method = stock.tracked ? 'DELETE' : 'POST';
+  await fetch(`/api/watchlist/${symbol}`, {method});
+  stock.tracked = !stock.tracked;
+  btn.classList.toggle('on', stock.tracked);
+  btn.textContent = stock.tracked ? '★' : '☆';
+  if (document.getElementById('watch-only').checked) applyFilters();
+}
+
+loadStocks();
+</script>
+{% endblock %}

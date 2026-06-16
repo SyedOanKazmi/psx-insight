@@ -5,39 +5,27 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_absolute_percentage_error
-import json
 import os
-import hashlib
-import secrets
 from datetime import datetime, timedelta
 import warnings
+
+import db
+from db import get_db, hash_pw, add_notification, STOCKS, SECTORS
+
 warnings.filterwarnings("ignore")
 
 app = Flask(__name__, template_folder='../frontend/templates', static_folder='../frontend/static')
-app.secret_key = secrets.token_hex(32)
+# Use a stable secret from the environment so sessions survive restarts in
+# production; fall back to a random one for local development.
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 
-# ─── In-memory user store (replace with DB later) ────────────────────────────
-USERS = {
-    "admin@psx.com":  {"password": hashlib.sha256("admin123".encode()).hexdigest(), "role": "admin",    "name": "Admin"},
-    "expert@psx.com": {"password": hashlib.sha256("expert123".encode()).hexdigest(), "role": "expert",   "name": "Dr. Ayesha Khan"},
-    "user@psx.com":   {"password": hashlib.sha256("user123".encode()).hexdigest(),   "role": "investor", "name": "Ali Raza"},
-}
-
-# ─── In-memory Q&A store ──────────────────────────────────────────────────────
-QA_POSTS = [
-    {"id": 1, "author": "Ali Raza", "role": "investor", "question": "Is OGDC a good long-term investment?",
-     "answer": "OGDC has strong fundamentals with consistent dividend payouts. However, watch for oil price volatility.", "answered_by": "Dr. Ayesha Khan", "date": "2024-12-01"},
-    {"id": 2, "author": "Sara Ahmed", "role": "investor", "question": "What is the outlook for PSX banking sector in 2025?",
-     "answer": None, "answered_by": None, "date": "2024-12-10"},
-]
-qa_counter = 3
+# Create tables and seed demo data on startup.
+db.init_db()
 
 # ─── Stock data & model cache ─────────────────────────────────────────────────
 DATA_PATH = os.path.join(os.path.dirname(__file__), '../data/PSX_KSE100.csv')
 model_cache = {}
 
-def hash_pw(pw):
-    return hashlib.sha256(pw.encode()).hexdigest()
 
 def login_required(f):
     @wraps(f)
@@ -46,6 +34,7 @@ def login_required(f):
             return redirect(url_for('login_page'))
         return f(*args, **kwargs)
     return decorated
+
 
 def role_required(*roles):
     def decorator(f):
@@ -57,6 +46,7 @@ def role_required(*roles):
         return decorated
     return decorator
 
+
 # ─── Load & process stock data ────────────────────────────────────────────────
 def load_stock_data():
     df = pd.read_csv(DATA_PATH)
@@ -64,6 +54,7 @@ def load_stock_data():
     df.sort_values('Date', inplace=True)
     df.reset_index(drop=True, inplace=True)
     return df
+
 
 def engineer_features(df):
     df = df.copy()
@@ -82,6 +73,7 @@ def engineer_features(df):
     df.dropna(inplace=True)
     return df
 
+
 def train_model(df):
     features = ['Open','High','Low','Volume','MA7','MA21','MA50','MACD','Volatility','Price_Range','Lag1','Lag5','Lag10']
     target   = 'Close'
@@ -95,6 +87,7 @@ def train_model(df):
     y_pred = model.predict(X_test)
     mape = mean_absolute_percentage_error(y_test, y_pred)
     return model, features, mape, X_test, y_test, y_pred
+
 
 def get_model():
     if 'model' not in model_cache:
@@ -110,6 +103,7 @@ def get_model():
         model_cache['y_test']   = y_test.values
         model_cache['y_pred']   = y_pred
     return model_cache
+
 
 def predict_future(model, df_feat, features, days=30):
     last_row = df_feat.iloc[-1].copy()
@@ -131,6 +125,7 @@ def predict_future(model, df_feat, features, days=30):
         last_row['Open']  = pred
     return predictions
 
+
 # ─── Pages ───────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
@@ -138,35 +133,54 @@ def index():
         return redirect(url_for('dashboard'))
     return redirect(url_for('login_page'))
 
+
 @app.route('/login')
 def login_page():
     return render_template('login.html')
 
+
 @app.route('/register')
 def register_page():
     return render_template('register.html')
+
 
 @app.route('/dashboard')
 @login_required
 def dashboard():
     return render_template('dashboard.html', user=session['name'], role=session['role'])
 
+
 @app.route('/predict-page')
 @login_required
 def predict_page():
     return render_template('predict.html', user=session['name'], role=session['role'])
+
+
+@app.route('/watchlist')
+@login_required
+def watchlist_page():
+    return render_template('watchlist.html', user=session['name'], role=session['role'])
+
 
 @app.route('/qa')
 @login_required
 def qa_page():
     return render_template('qa.html', user=session['name'], role=session['role'])
 
+
+@app.route('/feedback')
+@login_required
+def feedback_page():
+    return render_template('feedback.html', user=session['name'], role=session['role'])
+
+
 @app.route('/admin')
 @login_required
 def admin_page():
     if session.get('role') != 'admin':
         return redirect(url_for('dashboard'))
-    return render_template('admin.html', user=session['name'], role=session['role'], users=USERS)
+    return render_template('admin.html', user=session['name'], role=session['role'])
+
 
 # ─── Auth API ─────────────────────────────────────────────────────────────────
 @app.route('/api/login', methods=['POST'])
@@ -174,13 +188,16 @@ def api_login():
     data = request.json
     email = data.get('email', '').strip()
     pw    = data.get('password', '')
-    user  = USERS.get(email)
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE email=?', (email,)).fetchone()
+    conn.close()
     if not user or user['password'] != hash_pw(pw):
         return jsonify({"error": "Invalid credentials"}), 401
     session['user'] = email
     session['role'] = user['role']
     session['name'] = user['name']
     return jsonify({"message": "ok", "role": user['role'], "name": user['name']})
+
 
 @app.route('/api/register', methods=['POST'])
 def api_register():
@@ -190,18 +207,29 @@ def api_register():
     name  = data.get('name', '').strip()
     if not email or not pw or not name:
         return jsonify({"error": "All fields required"}), 400
-    if email in USERS:
+    conn = get_db()
+    exists = conn.execute('SELECT 1 FROM users WHERE email=?', (email,)).fetchone()
+    if exists:
+        conn.close()
         return jsonify({"error": "Email already registered"}), 409
-    USERS[email] = {"password": hash_pw(pw), "role": "investor", "name": name}
+    conn.execute(
+        'INSERT INTO users (email, password, role, name, created_at) VALUES (?,?,?,?,?)',
+        (email, hash_pw(pw), 'investor', name, datetime.now().strftime('%Y-%m-%d')),
+    )
+    conn.commit()
+    conn.close()
     session['user'] = email
     session['role'] = 'investor'
     session['name'] = name
+    add_notification(email, "Welcome to PSX Insight! Start by exploring the market dashboard.", "info")
     return jsonify({"message": "ok", "role": "investor", "name": name})
+
 
 @app.route('/api/logout', methods=['POST'])
 def api_logout():
     session.clear()
     return jsonify({"message": "ok"})
+
 
 # ─── Stock Data API ───────────────────────────────────────────────────────────
 @app.route('/api/stock/history')
@@ -217,6 +245,7 @@ def stock_history():
         "low":     recent['Low'].tolist(),
         "volume":  recent['Volume'].tolist(),
     })
+
 
 @app.route('/api/stock/summary')
 @login_required
@@ -235,6 +264,7 @@ def stock_summary():
         "avg_volume":   int(df.tail(30)['Volume'].mean()),
         "last_date":    latest['Date'].strftime('%Y-%m-%d'),
     })
+
 
 # ─── Prediction API ───────────────────────────────────────────────────────────
 @app.route('/api/predict', methods=['GET'])
@@ -256,28 +286,147 @@ def api_predict():
         "test_predicted": [round(v,2) for v in cache['y_pred'][-60:]],
     })
 
+
+# ─── Stock Filtering / Watchlist API (Module 7) ───────────────────────────────
+def _indicative_price(symbol):
+    """Deterministic indicative price for a reference stock.
+
+    We do not hold per-stock history, so this derives a stable illustrative
+    figure from the symbol. It is clearly labelled "indicative" in the UI and
+    is only used to make the watchlist visually meaningful.
+    """
+    seed = sum(ord(ch) for ch in symbol)
+    base = 40 + (seed % 900)
+    change = round(((seed % 41) - 20) / 10.0, 2)  # -2.0 .. +2.0 %
+    return round(base + (seed % 100) / 100.0, 2), change
+
+
+@app.route('/api/stocks')
+@login_required
+def api_stocks():
+    """All reference stocks, annotated with whether they are on the user's watchlist."""
+    conn = get_db()
+    rows = conn.execute('SELECT symbol FROM watchlist WHERE user_email=?', (session['user'],)).fetchall()
+    conn.close()
+    tracked = {r['symbol'] for r in rows}
+    out = []
+    for s in STOCKS:
+        price, change = _indicative_price(s['symbol'])
+        out.append({**s, "price": price, "change": change, "tracked": s['symbol'] in tracked})
+    return jsonify({"stocks": out, "sectors": SECTORS})
+
+
+@app.route('/api/watchlist', methods=['GET'])
+@login_required
+def get_watchlist():
+    conn = get_db()
+    rows = conn.execute('SELECT symbol FROM watchlist WHERE user_email=?', (session['user'],)).fetchall()
+    conn.close()
+    tracked = {r['symbol'] for r in rows}
+    out = []
+    for s in STOCKS:
+        if s['symbol'] in tracked:
+            price, change = _indicative_price(s['symbol'])
+            out.append({**s, "price": price, "change": change})
+    return jsonify(out)
+
+
+@app.route('/api/watchlist/<symbol>', methods=['POST'])
+@login_required
+def add_watchlist(symbol):
+    if symbol not in {s['symbol'] for s in STOCKS}:
+        return jsonify({"error": "Unknown symbol"}), 404
+    conn = get_db()
+    conn.execute('INSERT OR IGNORE INTO watchlist (user_email, symbol) VALUES (?,?)',
+                 (session['user'], symbol))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "added", "symbol": symbol})
+
+
+@app.route('/api/watchlist/<symbol>', methods=['DELETE'])
+@login_required
+def remove_watchlist(symbol):
+    conn = get_db()
+    conn.execute('DELETE FROM watchlist WHERE user_email=? AND symbol=?', (session['user'], symbol))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "removed", "symbol": symbol})
+
+
+# ─── Notifications API (Module 8) ─────────────────────────────────────────────
+@app.route('/api/notifications', methods=['GET'])
+@login_required
+def get_notifications():
+    """Personal notifications plus broadcasts (user_email IS NULL)."""
+    conn = get_db()
+    rows = conn.execute(
+        '''SELECT * FROM notifications
+           WHERE user_email=? OR user_email IS NULL
+           ORDER BY id DESC LIMIT 50''',
+        (session['user'],),
+    ).fetchall()
+    conn.close()
+    items = [dict(r) for r in rows]
+    unread = sum(1 for r in items if not r['is_read'])
+    return jsonify({"notifications": items, "unread": unread})
+
+
+@app.route('/api/notifications/read', methods=['POST'])
+@login_required
+def mark_notifications_read():
+    conn = get_db()
+    conn.execute(
+        'UPDATE notifications SET is_read=1 WHERE user_email=?',
+        (session['user'],),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "ok"})
+
+
+@app.route('/api/notifications/announce', methods=['POST'])
+@login_required
+def announce():
+    if session.get('role') != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+    msg = (request.json or {}).get('message', '').strip()
+    if not msg:
+        return jsonify({"error": "Message required"}), 400
+    add_notification(None, msg, "announcement")
+    return jsonify({"message": "sent"})
+
+
 # ─── Q&A API ──────────────────────────────────────────────────────────────────
 @app.route('/api/qa', methods=['GET'])
 @login_required
 def get_qa():
-    return jsonify(QA_POSTS)
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM qa_posts ORDER BY id ASC').fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
 
 @app.route('/api/qa', methods=['POST'])
 @login_required
 def post_question():
-    global qa_counter
     data = request.json
     q = data.get('question', '').strip()
     if not q:
         return jsonify({"error": "Question required"}), 400
-    post = {
-        "id": qa_counter, "author": session['name'], "role": session['role'],
-        "question": q, "answer": None, "answered_by": None,
-        "date": datetime.now().strftime('%Y-%m-%d')
-    }
-    QA_POSTS.append(post)
-    qa_counter += 1
-    return jsonify(post)
+    conn = get_db()
+    cur = conn.execute(
+        '''INSERT INTO qa_posts (author, asker_email, role, question, answer, answered_by, date)
+           VALUES (?,?,?,?,?,?,?)''',
+        (session['name'], session['user'], session['role'], q, None, None,
+         datetime.now().strftime('%Y-%m-%d')),
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    row = conn.execute('SELECT * FROM qa_posts WHERE id=?', (new_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(row))
+
 
 @app.route('/api/qa/<int:qid>/answer', methods=['POST'])
 @login_required
@@ -286,21 +435,91 @@ def post_answer(qid):
         return jsonify({"error": "Only experts can answer"}), 403
     data = request.json
     answer = data.get('answer', '').strip()
-    for post in QA_POSTS:
-        if post['id'] == qid:
-            post['answer']      = answer
-            post['answered_by'] = session['name']
-            return jsonify(post)
-    return jsonify({"error": "Not found"}), 404
+    conn = get_db()
+    row = conn.execute('SELECT * FROM qa_posts WHERE id=?', (qid,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    conn.execute('UPDATE qa_posts SET answer=?, answered_by=? WHERE id=?',
+                 (answer, session['name'], qid))
+    conn.commit()
+    updated = conn.execute('SELECT * FROM qa_posts WHERE id=?', (qid,)).fetchone()
+    conn.close()
+    # Notify the investor who asked, if we know who they are.
+    if row['asker_email']:
+        add_notification(row['asker_email'],
+                         f"{session['name']} answered your question.", "answer")
+    return jsonify(dict(updated))
+
 
 @app.route('/api/qa/<int:qid>', methods=['DELETE'])
 @login_required
 def delete_qa(qid):
-    global QA_POSTS
     if session.get('role') not in ('expert', 'admin'):
         return jsonify({"error": "Unauthorized"}), 403
-    QA_POSTS = [p for p in QA_POSTS if p['id'] != qid]
+    conn = get_db()
+    conn.execute('DELETE FROM qa_posts WHERE id=?', (qid,))
+    conn.commit()
+    conn.close()
     return jsonify({"message": "deleted"})
+
+
+# ─── Feedback API (Module 9) ──────────────────────────────────────────────────
+@app.route('/api/feedback', methods=['POST'])
+@login_required
+def submit_feedback():
+    data = request.json or {}
+    category = data.get('category', 'General').strip()
+    message  = data.get('message', '').strip()
+    if not message:
+        return jsonify({"error": "Message required"}), 400
+    conn = get_db()
+    conn.execute(
+        '''INSERT INTO feedback (user_email, name, category, message, status, created_at)
+           VALUES (?,?,?,?,?,?)''',
+        (session['user'], session['name'], category, message, 'open',
+         datetime.now().strftime('%Y-%m-%d %H:%M')),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Thank you for your feedback!"})
+
+
+@app.route('/api/feedback', methods=['GET'])
+@login_required
+def list_feedback():
+    """Investors see their own feedback; admins see everything."""
+    conn = get_db()
+    if session.get('role') == 'admin':
+        rows = conn.execute('SELECT * FROM feedback ORDER BY id DESC').fetchall()
+    else:
+        rows = conn.execute('SELECT * FROM feedback WHERE user_email=? ORDER BY id DESC',
+                            (session['user'],)).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/feedback/<int:fid>/respond', methods=['POST'])
+@login_required
+def respond_feedback(fid):
+    if session.get('role') != 'admin':
+        return jsonify({"error": "Unauthorized"}), 403
+    data = request.json or {}
+    response = data.get('response', '').strip()
+    conn = get_db()
+    row = conn.execute('SELECT * FROM feedback WHERE id=?', (fid,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    conn.execute('UPDATE feedback SET admin_response=?, status=? WHERE id=?',
+                 (response, 'resolved', fid))
+    conn.commit()
+    conn.close()
+    if row['user_email']:
+        add_notification(row['user_email'],
+                         "An admin responded to your feedback.", "feedback")
+    return jsonify({"message": "responded"})
+
 
 # ─── Admin API ────────────────────────────────────────────────────────────────
 @app.route('/api/admin/users', methods=['GET'])
@@ -308,8 +527,11 @@ def delete_qa(qid):
 def admin_users():
     if session.get('role') != 'admin':
         return jsonify({"error": "Unauthorized"}), 403
-    users = [{"email": e, "name": v['name'], "role": v['role']} for e, v in USERS.items()]
-    return jsonify(users)
+    conn = get_db()
+    rows = conn.execute('SELECT email, name, role FROM users').fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
 
 @app.route('/api/admin/users/<email>', methods=['DELETE'])
 @login_required
@@ -318,8 +540,12 @@ def admin_delete_user(email):
         return jsonify({"error": "Unauthorized"}), 403
     if email == session['user']:
         return jsonify({"error": "Cannot delete yourself"}), 400
-    USERS.pop(email, None)
+    conn = get_db()
+    conn.execute('DELETE FROM users WHERE email=?', (email,))
+    conn.commit()
+    conn.close()
     return jsonify({"message": "deleted"})
+
 
 if __name__ == '__main__':
     print("Training model on startup...")
