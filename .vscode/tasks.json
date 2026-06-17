@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Backend (FastAPI)",
+      "type": "shell",
+      "command": "python -m uvicorn main:app --reload --port 8001",
+      "options": { "cwd": "${workspaceFolder}/api" },
+      "isBackground": true,
+      "presentation": { "group": "app", "panel": "dedicated", "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend (Vue)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/web",
+        "env": { "PATH": "C:\\Users\\Kazmi\\nodejs-portable\\node-v22.14.0-win-x64;${env:PATH}" }
+      },
+      "isBackground": true,
+      "presentation": { "group": "app", "panel": "dedicated", "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run App",
+      "dependsOn": ["Backend (FastAPI)", "Frontend (Vue)"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}
