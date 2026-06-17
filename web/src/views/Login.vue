@@ -10,7 +10,6 @@
         {{ loading ? 'Signing in...' : 'Sign In' }}
       </button>
       <p class="switch">No account? <RouterLink to="/register">Register</RouterLink></p>
-      <p class="hint">Demo: user@psx.com / user123</p>
     </div>
   </div>
 </template>
@@ -20,8 +19,8 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../store/auth'
 
-const email = ref('user@psx.com')
-const password = ref('user123')
+const email = ref('')
+const password = ref('')
 const error = ref('')
 const loading = ref(false)
 const auth = useAuth()
