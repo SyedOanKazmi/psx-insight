@@ -21,3 +21,6 @@ web/node_modules/
 web/dist/
 web/.vite/
 .vite/
+
+# Built frontend copied in for serving / Docker build output
+api/static/

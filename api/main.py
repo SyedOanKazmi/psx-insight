@@ -12,6 +12,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 import db
 import ml
@@ -308,3 +309,12 @@ def admin_delete_user(email: str, user: dict = Depends(require_roles("admin"))):
     conn.commit()
     conn.close()
     return {"message": "deleted"}
+
+
+# ─── Serve the built Vue frontend (production) ────────────────────────────────
+# When deployed, the built site is copied to ./static and served from the same
+# server as the API (one URL). Mounted LAST so /api/* and /docs win first.
+# The app uses hash routing, so serving index.html at "/" is enough.
+_FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")

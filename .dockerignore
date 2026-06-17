@@ -1,0 +1,11 @@
+**/node_modules
+**/__pycache__
+**/*.pyc
+*.db
+api/psx.db
+api/static
+web/dist
+.git
+backend
+frontend
+model/artifacts
